@@ -35,7 +35,7 @@ public class PipelineService {
 
         ApiUnderstandingResult ar = new ApiUnderstandingResult();
         ar.summaryText = understandingText;
-
+        log.info("总结api结果:"+ar.summaryText);
         // 2. Test Case Generation
         log.info("Generating Test Cases...");
         String casesText = llmService.callLlm(PromptPresets.casesSystemPrompt(),
@@ -61,7 +61,7 @@ public class PipelineService {
         String analysisPrompt = PromptPresets.analysisPrompt(programName, 
             testCaseGenerator.describe(cases, ar), 
             metrics);
-            
+        log.info("analysis prompt:"+analysisPrompt);
         String summary = ModelUtils.stripCodeFences(llmService.callLlm("你是资深测试分析师，输出中文总结，不要附加无关内容。", analysisPrompt));
         result.summary = summary;
 

@@ -44,6 +44,13 @@
     <!-- Jackson is included in spring-boot-starter-web, but if specific versions or modules are needed we can keep them. 
          Spring Boot manages Jackson versions, so I'll let it manage them to avoid conflicts. -->
     
+    <!-- OpenAI SDK -->
+    <dependency>
+      <groupId>com.openai</groupId>
+      <artifactId>openai-java</artifactId>
+      <version>0.15.0</version>
+    </dependency>
+
     <!-- Lombok (Optional but good for refactoring) -->
     <dependency>
         <groupId>org.projectlombok</groupId>

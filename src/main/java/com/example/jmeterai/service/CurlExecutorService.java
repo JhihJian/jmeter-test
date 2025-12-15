@@ -2,6 +2,7 @@ package com.example.jmeterai.service;
 
 import com.example.jmeterai.model.ExecutionResult;
 import com.example.jmeterai.model.TestCase;
+import lombok.extern.slf4j.Slf4j;
 import okhttp3.*;
 import org.springframework.stereotype.Service;
 
@@ -12,6 +13,7 @@ import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 @Service
+@Slf4j
 public class CurlExecutorService {
 
     private final OkHttpClient client;
@@ -27,7 +29,9 @@ public class CurlExecutorService {
     public List<ExecutionResult> executeAll(List<TestCase> cases, String baseUrl) {
         List<ExecutionResult> results = new ArrayList<>();
         for (TestCase tc : cases) {
-            results.add(executeOne(tc, baseUrl));
+            ExecutionResult r = executeOne(tc, baseUrl);
+            results.add(r);
+            // log.info("测试结果:{}", r);
         }
         return results;
     }
