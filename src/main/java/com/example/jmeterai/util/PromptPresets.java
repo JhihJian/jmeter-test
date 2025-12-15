@@ -1,4 +1,7 @@
-package com.example.jmeterai;
+package com.example.jmeterai.util;
+
+import com.example.jmeterai.model.LabelStat;
+import com.example.jmeterai.model.SummaryMetrics;
 
 public class PromptPresets {
   public static String jmxSystemPrompt() {
@@ -42,6 +45,72 @@ Swagger原始内容(截断):
 每个用例包含：name, method, path, headers(对象), queryParams(对象), pathParams(对象), body(字符串), goal(字符串)。
 仅输出 JSON（可为数组或包含 cases 字段的对象）。
 """;
+  }
+  public static String casesFromDocSystemPrompt() {
+    return """
+你是资深接口测试工程师。将提供的业务测试用例文档与 OpenAPI/Swagger 信息结合，生成接口测试用例清单（JSON）。
+要求：每个用例包含 name, method, path, headers(对象), queryParams(对象), pathParams(对象), body(字符串), goal(字符串)。
+仅输出 JSON（数组或包含 cases 字段的对象）。
+""";
+  }
+  public static String casesFromDocUserPrompt(String programName, String extra, OpenApiExtractor.OpenApiInfo info, String caseDoc) {
+    String endpoints = info.endpointsPreview == null ? "" : info.endpointsPreview;
+    String raw = info.rawPreview == null ? "" : info.rawPreview;
+    String base = info.baseUrl == null ? "" : info.baseUrl;
+    return """
+程序名称: %s
+测试额外要求: %s
+基础服务器: %s
+
+接口列表:
+%s
+
+Swagger原始内容(截断):
+%s
+
+测试用例文档(原文):
+%s
+
+请基于上述文档与接口信息生成接口测试用例 JSON。
+""".formatted(programName, extra, base, endpoints, raw, caseDoc);
+  }
+  public static String jmxFixSystemPrompt() {
+    return """
+你是资深性能测试工程师。根据提供的现有 JMX XML、失败摘要与用例说明，修复并输出完整的 JMX XML（JMeter 5.6+）。
+严格要求：
+1) 输出仅为 JMX XML；
+2) `HTTPSampler.path` 不得为空，需包含基础路径；
+3) 修复域名/协议/端口/头/参数/断言配置；
+""";
+  }
+  public static String jmxFixUserPrompt(String programName, String extra, OpenApiExtractor.OpenApiInfo info, String currentJmx, String casesMd, SummaryMetrics m) {
+    String base = info.baseUrl == null ? "" : info.baseUrl;
+    return """
+程序名称: %s
+基础服务器: %s
+测试额外要求: %s
+
+当前 JMX:
+%s
+
+用例说明:
+%s
+
+失败摘要:
+总请求: %d, 成功: %d, 失败: %d, 错误率: %s
+
+请修复上述 JMX 并输出完整 XML。
+""".formatted(
+        programName,
+        base,
+        extra,
+        currentJmx,
+        casesMd,
+        m.total,
+        m.success,
+        m.fail,
+        String.format("%.2f%%", m.errorRate * 100)
+    );
   }
   public static String casesUserPrompt(String programName, String extra, OpenApiExtractor.OpenApiInfo info) {
     String endpoints = info.endpointsPreview == null ? "" : info.endpointsPreview;
@@ -93,7 +162,7 @@ Swagger原始内容(截断):
   }
   public static String analysisPrompt(String programName, String extra, SummaryMetrics m) {
     String header = """
-程序: %s
+程序名称: %s
 测试额外要求: %s
 汇总指标:
 总请求: %d

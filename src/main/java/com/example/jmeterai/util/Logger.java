@@ -1,4 +1,4 @@
-package com.example.jmeterai;
+package com.example.jmeterai.util;
 
 public final class Logger {
   public enum Level { TRACE, DEBUG, INFO, WARN, ERROR }

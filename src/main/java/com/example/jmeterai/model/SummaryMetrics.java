@@ -1,4 +1,4 @@
-package com.example.jmeterai;
+package com.example.jmeterai.model;
 
 public class SummaryMetrics {
   public long total;

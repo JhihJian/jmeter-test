@@ -1,5 +1,6 @@
-package com.example.jmeterai;
+package com.example.jmeterai.model;
 
+import com.example.jmeterai.util.OpenApiExtractor;
 import com.fasterxml.jackson.databind.JsonNode;
 
 import java.util.ArrayList;

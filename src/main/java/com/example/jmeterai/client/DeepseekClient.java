@@ -1,4 +1,4 @@
-package com.example.jmeterai;
+package com.example.jmeterai.client;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -10,9 +10,9 @@ import okhttp3.Response;
 
 public class DeepseekClient {
   private final OkHttpClient http = new OkHttpClient.Builder()
-      .connectTimeout(java.time.Duration.ofSeconds(30))
-      .readTimeout(java.time.Duration.ofSeconds(60))
-      .writeTimeout(java.time.Duration.ofSeconds(60))
+      .connectTimeout(java.time.Duration.ofSeconds(60))
+      .readTimeout(java.time.Duration.ofSeconds(300))
+      .writeTimeout(java.time.Duration.ofSeconds(300))
       .build();
   private final ObjectMapper mapper = new ObjectMapper();
   private final String apiKey;

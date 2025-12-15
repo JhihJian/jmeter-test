@@ -1,4 +1,4 @@
-package com.example.jmeterai;
+package com.example.jmeterai.client;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -10,9 +10,9 @@ import okhttp3.Response;
 
 public class DashscopeClient {
   private final OkHttpClient http = new OkHttpClient.Builder()
-      .connectTimeout(java.time.Duration.ofSeconds(30))
-      .readTimeout(java.time.Duration.ofSeconds(60))
-      .writeTimeout(java.time.Duration.ofSeconds(60))
+      .connectTimeout(java.time.Duration.ofSeconds(60))
+      .readTimeout(java.time.Duration.ofSeconds(600))
+      .writeTimeout(java.time.Duration.ofSeconds(600))
       .build();
   private final ObjectMapper mapper = new ObjectMapper();
   private final String apiKey;
@@ -61,4 +61,3 @@ public class DashscopeClient {
     return mapper.writeValueAsString(s);
   }
 }
-

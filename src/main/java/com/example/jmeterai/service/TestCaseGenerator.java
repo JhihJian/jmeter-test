@@ -1,8 +1,17 @@
-package com.example.jmeterai;
+package com.example.jmeterai.service;
 
+import com.example.jmeterai.model.ApiUnderstandingResult;
+import com.example.jmeterai.model.TestCase;
+import com.example.jmeterai.util.OpenApiExtractor;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
+import org.springframework.stereotype.Service;
+
+@Service
 public class TestCaseGenerator {
   public List<TestCase> generate(OpenApiExtractor.OpenApiInfo info, String extra) {
     return generate(info, extra, null);
@@ -155,8 +164,8 @@ public class TestCaseGenerator {
   }
 
   public List<TestCase> parseLlmCases(String content) {
-    String s = ModelUtils.stripCodeFences(content);
-    java.util.List<TestCase> out = new java.util.ArrayList<>();
+    String s = com.example.jmeterai.util.ModelUtils.stripCodeFences(content);
+    List<TestCase> out = new ArrayList<>();
     try {
       com.fasterxml.jackson.databind.ObjectMapper m = new com.fasterxml.jackson.databind.ObjectMapper();
       com.fasterxml.jackson.databind.JsonNode root = m.readTree(s);

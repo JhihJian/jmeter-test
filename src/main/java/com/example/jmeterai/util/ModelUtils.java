@@ -1,4 +1,4 @@
-package com.example.jmeterai;
+package com.example.jmeterai.util;
 
 public class ModelUtils {
   public static String extractXml(String s) {

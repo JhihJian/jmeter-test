@@ -1,4 +1,4 @@
-package com.example.jmeterai;
+package com.example.jmeterai.model;
 
 import java.util.ArrayList;
 import java.util.List;

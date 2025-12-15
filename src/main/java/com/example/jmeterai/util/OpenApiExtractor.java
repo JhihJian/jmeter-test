@@ -1,4 +1,4 @@
-package com.example.jmeterai;
+package com.example.jmeterai.util;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
