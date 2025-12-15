@@ -12,8 +12,9 @@ import org.springframework.stereotype.Service;
 import java.time.Duration;
 
 @Service
-@Slf4j
 public class LlmService {
+    
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(LlmService.class);
 
     @Value("${LLM_PROVIDER:}")
     private String provider;
@@ -67,6 +68,7 @@ public class LlmService {
 
          log.info("Calling LLM: provider={}, model={}, baseUrl={},system length={},user length={}", p, model, baseUrl,system.length(),user.length());
 
+        long start = System.currentTimeMillis();
         OpenAIClient client = OpenAIOkHttpClient.builder()
                 .apiKey(apiKey)
                 .baseUrl(baseUrl)
@@ -80,11 +82,15 @@ public class LlmService {
                 .build();
 
         ChatCompletion chatCompletion = client.chat().completions().create(params);
+        long duration = System.currentTimeMillis() - start;
         
         if (chatCompletion.choices().isEmpty()) {
+            log.error("LLM returned no choices after {}ms", duration);
             throw new RuntimeException("LLM returned no choices");
         }
         
-        return chatCompletion.choices().get(0).message().content().orElse("");
+        String content = chatCompletion.choices().get(0).message().content().orElse("");
+        log.info("LLM Response received in {}ms, length={}", duration, content.length());
+        return content;
     }
 }

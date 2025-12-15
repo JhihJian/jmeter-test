@@ -11,4 +11,5 @@ public class TestCase {
   public Map<String,String> headers = new LinkedHashMap<>();
   public Map<String,String> queryParams = new LinkedHashMap<>();
   public Map<String,String> pathParams = new LinkedHashMap<>();
+  public String goal;
 }

@@ -10,6 +10,8 @@ import java.util.List;
 @Service
 public class PipelineService {
 
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(PipelineService.class);
+
     @Autowired
     private LlmService llmService;
 
@@ -21,10 +23,9 @@ public class PipelineService {
 
     public ProjectResult runPipeline(String swaggerUrl, String programName, String extra) throws Exception {
         ProjectResult result = new ProjectResult();
-        Logger log = Logger.get(PipelineService.class);
 
         // 1. API Understanding
-        log.info("Downloading Swagger: " + swaggerUrl);
+        log.info("Downloading Swagger: {}", swaggerUrl);
         OpenApiExtractor extractor = new OpenApiExtractor();
         OpenApiExtractor.OpenApiInfo info = extractor.load(swaggerUrl);
 
@@ -35,31 +36,99 @@ public class PipelineService {
 
         ApiUnderstandingResult ar = new ApiUnderstandingResult();
         ar.summaryText = understandingText;
-        log.info("总结api结果:"+ar.summaryText);
-        // 2. Test Case Generation
-        log.info("Generating Test Cases...");
-        String casesText = llmService.callLlm(PromptPresets.casesSystemPrompt(),
-                PromptPresets.casesUserPrompt(programName, extra, info));
-        List<TestCase> cases = testCaseGenerator.parseLlmCases(casesText);
-        result.testCases = cases;
+        log.info("总结api结果: {}", ar.summaryText);
+        // 2. Test Case Generation & Execution (Iterative by Interface & Scenario)
+        log.info("Starting Interface-by-Interface Testing...");
+        List<TestCase> allCases = new java.util.ArrayList<>();
+        List<ExecutionResult> allResults = new java.util.ArrayList<>();
 
-        // 3. Execution (Curl)
-        log.info("Executing Test Cases...");
         String baseUrl = info.baseUrl;
         if (baseUrl == null || baseUrl.isEmpty()) {
              log.warn("Base URL not found in Swagger, execution might fail if paths are relative.");
              baseUrl = "http://localhost:8080";
         }
         
-        List<ExecutionResult> execResults = curlExecutorService.executeAll(cases, baseUrl);
-        result.executionResults = execResults;
+        int endpointIndex = 0;
+        int totalEndpoints = info.endpoints.size();
+
+        // Iterate endpoints
+        for (OpenApiExtractor.Endpoint endpoint : info.endpoints) {
+            endpointIndex++;
+            String endpointJson = extractor.getEndpointJson(info.root, endpoint.method, endpoint.path);
+            if (endpointJson.isEmpty()) {
+                log.warn("Skipping endpoint {} {} (JSON extraction failed)", endpoint.method, endpoint.path);
+                continue;
+            }
+
+            log.info("Testing Endpoint [{}/{}]: {} {}", endpointIndex, totalEndpoints, endpoint.method, endpoint.path);
+
+            // Iterate Quality Scenarios
+            for (QualityScenario scenario : QualityScenario.values()) {
+                log.info("  Scenario: {}", scenario.name());
+                
+                // a. Generate Cases for this scenario
+                try {
+                    log.info("    Generating cases for scenario: {}", scenario.name());
+                    String casesText = llmService.callLlm(
+                        PromptPresets.singleInterfaceSystemPrompt(),
+                        PromptPresets.singleInterfaceUserPrompt(programName, endpoint.method, endpoint.path, endpointJson, scenario)
+                    );
+                    if (log.isDebugEnabled()) {
+                        log.debug("    LLM Generated Cases Response: {}", casesText);
+                    }
+                    
+                    List<TestCase> scenarioCases = testCaseGenerator.parseLlmCases(casesText);
+                    log.info("    Parsed {} cases from LLM response", scenarioCases.size());
+                    
+                    // b. Execute Cases immediately
+                    for (TestCase tc : scenarioCases) {
+                        allCases.add(tc);
+                        log.info("      Executing Case: {} (Goal: {})", tc.name, tc.goal);
+                        ExecutionResult execResult = curlExecutorService.executeOne(tc, baseUrl);
+                        execResult.scenario = scenario;
+
+                        // c. Verification (LLM Analysis)
+                        log.info("      Verifying result for case: {}", tc.name);
+                        String verifyJson = llmService.callLlm(
+                            PromptPresets.verificationSystemPrompt(),
+                            PromptPresets.verificationUserPrompt(tc, execResult, endpointJson)
+                        );
+                        if (log.isDebugEnabled()) {
+                            log.debug("      Verification Response: {}", verifyJson);
+                        }
+                        
+                        // Parse verification result
+                        try {
+                             com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+                             com.fasterxml.jackson.databind.JsonNode verifyNode = mapper.readTree(ModelUtils.stripCodeFences(verifyJson));
+                             execResult.verificationPassed = verifyNode.path("passed").asBoolean(false);
+                             execResult.verificationReason = verifyNode.path("reason").asText("No reason provided");
+                             
+                             // Override success flag based on verification
+                             execResult.success = execResult.verificationPassed;
+                        } catch (Exception e) {
+                             log.warn("Verification parsing failed: " + e.getMessage());
+                             execResult.verificationReason = "Verification parsing failed";
+                        }
+                        
+                        allResults.add(execResult);
+                        log.info("      Result: {} - Reason: {}", (execResult.success ? "PASS" : "FAIL"), execResult.verificationReason);
+                    }
+                } catch (Exception e) {
+                    log.error("Error testing " + endpoint.path + " scenario " + scenario.name() + ": " + e.getMessage(), e);
+                }
+            }
+        }
+
+        result.testCases = allCases;
+        result.executionResults = allResults;
 
         // 4. Summary
         log.info("Generating Summary...");
-        SummaryMetrics metrics = calculateMetrics(execResults);
+        SummaryMetrics metrics = calculateMetrics(allResults);
         
         String analysisPrompt = PromptPresets.analysisPrompt(programName, 
-            testCaseGenerator.describe(cases, ar), 
+            testCaseGenerator.describe(allCases, ar), 
             metrics);
         log.info("analysis prompt:"+analysisPrompt);
         String summary = ModelUtils.stripCodeFences(llmService.callLlm("你是资深测试分析师，输出中文总结，不要附加无关内容。", analysisPrompt));

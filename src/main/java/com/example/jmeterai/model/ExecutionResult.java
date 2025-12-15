@@ -10,4 +10,9 @@ public class ExecutionResult {
     public long durationMs;
     public boolean success;
     public String errorMessage;
+    
+    // Verification fields
+    public boolean verificationPassed;
+    public String verificationReason;
+    public QualityScenario scenario;
 }

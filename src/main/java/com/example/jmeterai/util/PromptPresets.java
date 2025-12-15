@@ -1,9 +1,69 @@
 package com.example.jmeterai.util;
 
+import com.example.jmeterai.model.ExecutionResult;
 import com.example.jmeterai.model.LabelStat;
+import com.example.jmeterai.model.QualityScenario;
 import com.example.jmeterai.model.SummaryMetrics;
+import com.example.jmeterai.model.TestCase;
 
 public class PromptPresets {
+    public static String singleInterfaceSystemPrompt() {
+        return """
+你是资深测试工程师。基于提供的单个接口 OpenAPI 定义，针对指定的“质量场景”生成测试用例 JSON。
+每个用例包含：name, method, path, headers(对象), queryParams(对象), pathParams(对象), body(字符串), goal(字符串)。
+仅输出 JSON（数组或包含 cases 字段的对象）。
+""";
+    }
+
+    public static String singleInterfaceUserPrompt(String programName, String method, String path, String endpointJson, QualityScenario scenario) {
+        return """
+程序名称: %s
+目标接口: %s %s
+测试场景: %s (%s)
+
+接口定义 (JSON):
+%s
+
+请生成针对该场景的测试用例。
+如果场景是 PARAM_INTEGRITY (参数完整性)，请生成缺少必填参数、参数为空、参数类型错误等用例。
+如果场景是 ABNORMAL_INPUT (异常输入)，请生成超长字符串、特殊字符、SQL注入尝试、边界值等用例。
+如果场景是 HAPPY_PATH (基本功能)，请生成正常调用的用例。
+""".formatted(programName, method, path, scenario.name(), scenario.getDescription(), endpointJson);
+    }
+
+    public static String verificationSystemPrompt() {
+        return """
+你是智能测试验证专家。基于接口定义、测试用例和实际执行结果（状态码、响应体），判断测试是否通过。
+对于负面测试（如异常输入），如果接口返回 4xx 并包含错误提示，应视为“通过”。
+对于正面测试，如果接口返回 2xx 且数据符合预期，视为“通过”。
+仅输出 JSON，格式：{"passed": true/false, "reason": "分析原因..."}
+""";
+    }
+
+    public static String verificationUserPrompt(TestCase tc, ExecutionResult result, String endpointJson) {
+        return """
+接口定义:
+%s
+
+测试用例:
+名称: %s
+目标: %s
+Method: %s
+URL: %s
+Request Body: %s
+
+执行结果:
+Status Code: %d
+Response Body: %s
+Error Message: %s
+
+请判断该测试是否符合预期（passed）。注意：
+1. 如果是用例是预期失败（如 goal 包含 '失败'、'异常'、'校验'），且服务器返回了 400/401/403/422 等错误码，应判定为 passed=true。
+2. 如果是用例是预期成功，但返回 4xx/5xx，判定为 passed=false。
+3. 如果返回 200 但响应体包含错误信息（业务错误），判定为 passed=false。
+""".formatted(endpointJson, tc.name, tc.goal, tc.method, result.url, tc.body, result.statusCode, result.responseBody, result.errorMessage);
+    }
+
   public static String jmxSystemPrompt() {
     return """
 你是资深性能测试工程师。基于提供的 OpenAPI/Swagger 信息，为 Apache JMeter 生成完整可执行的测试计划。

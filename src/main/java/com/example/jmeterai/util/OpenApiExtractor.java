@@ -103,6 +103,19 @@ public class OpenApiExtractor {
     return sb.toString();
   }
 
+  public String getEndpointJson(JsonNode root, String method, String path) {
+      if (root == null) return "";
+      try {
+          JsonNode pathNode = root.path("paths").path(path);
+          if (pathNode.isMissingNode()) return "";
+          JsonNode methodNode = pathNode.path(method.toLowerCase());
+          if (methodNode.isMissingNode()) return "";
+          return mapper.writerWithDefaultPrettyPrinter().writeValueAsString(methodNode);
+      } catch (Exception e) {
+          return "";
+      }
+  }
+
   private String truncate(String s, int max) {
     if (s == null) return "";
     return s.length() <= max ? s : s.substring(0, max);

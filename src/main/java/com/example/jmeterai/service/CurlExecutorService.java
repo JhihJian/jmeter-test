@@ -13,8 +13,9 @@ import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 @Service
-@Slf4j
 public class CurlExecutorService {
+
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(CurlExecutorService.class);
 
     private final OkHttpClient client;
 
@@ -67,17 +68,24 @@ public class CurlExecutorService {
 
         rb.method(tc.method, body);
 
+        log.info("Executing: {} {}", tc.method, url);
+        if (log.isDebugEnabled()) {
+             log.debug("Curl: {}", curl);
+        }
+
         long start = System.currentTimeMillis();
         try (Response response = client.newCall(rb.build()).execute()) {
             res.durationMs = System.currentTimeMillis() - start;
             res.statusCode = response.code();
             res.responseBody = response.body() != null ? response.body().string() : "";
             res.success = response.isSuccessful(); // 2xx range
+            log.info("Executed {} {}: Status={}, Duration={}ms", tc.method, url, res.statusCode, res.durationMs);
         } catch (IOException e) {
             res.durationMs = System.currentTimeMillis() - start;
             res.success = false;
             res.errorMessage = e.getMessage();
             res.statusCode = -1;
+            log.error("Execution failed for {} {}: {}", tc.method, url, e.getMessage());
         }
 
         return res;
