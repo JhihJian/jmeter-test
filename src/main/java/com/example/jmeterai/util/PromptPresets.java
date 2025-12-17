@@ -31,6 +31,55 @@ public class PromptPresets {
 """.formatted(programName, method, path, scenario.name(), scenario.getDescription(), endpointJson);
     }
 
+    public static String assertionGenerationSystemPrompt() {
+        return """
+你是测试断言生成专家。根据请求和实际响应结果，生成一组自动化断言。
+断言类型(type)支持: "statusCode", "bodyContains", "jsonPath", "responseTime".
+操作符(operator)支持: "equals", "contains", "notContains", "greaterThan", "lessThan".
+输出 JSON 数组，每个元素包含: type, expression(仅jsonPath需要), operator, expected, successMessage, failureMessage.
+示例:
+[
+  {
+    "type": "statusCode",
+    "operator": "equals",
+    "expected": "200",
+    "successMessage": "请求成功",
+    "failureMessage": "状态码非200"
+  },
+  {
+    "type": "jsonPath",
+    "expression": "$.code",
+    "operator": "equals",
+    "expected": "0",
+    "successMessage": "业务码正常",
+    "failureMessage": "业务码错误"
+  }
+]
+""";
+    }
+
+    public static String assertionGenerationUserPrompt(TestCase tc, ExecutionResult result, String endpointJson) {
+        return """
+接口定义:
+%s
+
+测试用例:
+名称: %s
+目标: %s
+Method: %s
+URL: %s
+Request Body: %s
+
+实际执行结果:
+Status Code: %d
+Response Body: %s
+
+请根据实际响应生成合理的断言列表。
+如果响应包含动态字段（如时间戳、ID），请不要对具体值做严格相等断言，而是检查格式或存在性（如 jsonPath 检查非空）。
+如果响应是错误（4xx/5xx），且用例预期是失败，请生成断言检查错误码或错误信息。
+""".formatted(endpointJson, tc.name, tc.goal, tc.method, result.url, tc.body, result.statusCode, result.responseBody);
+    }
+
     public static String verificationSystemPrompt() {
         return """
 你是智能测试验证专家。基于接口定义、测试用例和实际执行结果（状态码、响应体），判断测试是否通过。

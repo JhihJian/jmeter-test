@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>智能接口测试平台</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .status-badge { width: 80px; text-align: center; }
+        .result-details { font-size: 0.9em; color: #666; }
+        .module-badge { background-color: #e9ecef; color: #495057; padding: 4px 8px; border-radius: 4px; font-size: 0.85em; }
+        pre { background: #f8f9fa; padding: 10px; border-radius: 5px; max-height: 200px; overflow-y: auto; white-space: pre-wrap; word-wrap: break-word; }
+        .card-header { font-weight: bold; }
+    </style>
+</head>
+<body class="bg-light">
+
+<div class="container py-5">
+    <div class="text-center mb-5">
+        <h1 class="display-5 fw-bold text-primary">智能接口测试平台</h1>
+        <p class="lead text-muted">基于 LLM 的单接口多场景深度自动化测试</p>
+    </div>
+
+    <!-- 任务创建卡片 -->
+    <div class="card shadow-sm mb-4" id="createTaskCard">
+        <div class="card-header bg-white py-3">
+            <i class="bi bi-play-circle-fill me-2"></i>创建测试任务
+        </div>
+        <div class="card-body">
+            <form id="taskForm">
+                <div class="mb-3">
+                    <label for="programName" class="form-label">项目名称</label>
+                    <input type="text" class="form-control" id="programName" placeholder="例如：电商后台管理系统" required>
+                </div>
+                <div class="mb-3">
+                    <label for="swaggerUrl" class="form-label">Swagger/OpenAPI 文档地址</label>
+                    <input type="url" class="form-control" id="swaggerUrl" placeholder="http://localhost:8080/v3/api-docs" required>
+                    <div class="form-text">请输入 Swagger JSON 的访问地址，确保服务可访问。</div>
+                </div>
+                <div class="mb-3">
+                    <label for="extra" class="form-label">额外测试说明 (Prompt)</label>
+                    <textarea class="form-control" id="extra" rows="3" placeholder="例如：重点测试订单创建接口的幂等性，或者忽略某些特定的 404 错误。"></textarea>
+                </div>
+                <button type="submit" class="btn btn-primary w-100" id="runBtn">
+                    <span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
+                    开始测试
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- 任务状态与结果 -->
+    <div id="resultSection" class="d-none">
+        <!-- 进度条 -->
+        <div class="card shadow-sm mb-4" id="statusCard">
+            <div class="card-body text-center">
+                <h5 class="card-title mb-3" id="statusTitle">正在运行测试...</h5>
+                <div class="progress mb-3">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 100%" id="progressBar"></div>
+                </div>
+                <p class="text-muted" id="statusText">正在分析接口文档并生成用例（可能需要几分钟）...</p>
+            </div>
+        </div>
+
+        <!-- 操作栏 -->
+        <div class="d-flex justify-content-between align-items-center mb-3 d-none" id="actionToolbar">
+            <h4 class="mb-0">测试结果概览</h4>
+            <button class="btn btn-outline-primary" id="rerunBtn" onclick="rerunTask()">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-arrow-repeat me-1" viewBox="0 0 16 16">
+                    <path d="M11.534 7h3.932a.25.25 0 0 1 .192.41l-1.966 2.36a.25.25 0 0 1-.384 0l-1.966-2.36a.25.25 0 0 1 .192-.41zm-11 2h3.932a.25.25 0 0 0 .192-.41L2.692 6.23a.25.25 0 0 0-.384 0L.342 8.59A.25.25 0 0 0 .534 9z"/>
+                    <path fill-rule="evenodd" d="M8 3c-1.552 0-2.94.707-3.857 1.818a.5.5 0 1 1-.771-.636A6.002 6.002 0 0 1 13.917 7H12.9A5.002 5.002 0 0 0 8 3zM3.1 9a5.002 5.002 0 0 0 8.757 2.182.5.5 0 1 1 .771.636A6.002 6.002 0 0 1 2.083 9H3.1z"/>
+                </svg>
+                重新运行 (无LLM)
+            </button>
+        </div>
+
+        <!-- 结果概览 -->
+        <div class="row mb-4 d-none" id="summaryCard">
+            <div class="col-md-4">
+                <div class="card text-center border-success mb-3">
+                    <div class="card-body">
+                        <h3 class="card-title text-success" id="passCount">0</h3>
+                        <p class="card-text">测试通过</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card text-center border-danger mb-3">
+                    <div class="card-body">
+                        <h3 class="card-title text-danger" id="failCount">0</h3>
+                        <p class="card-text">测试失败</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card text-center border-secondary mb-3">
+                    <div class="card-body">
+                        <h3 class="card-title text-secondary" id="totalCount">0</h3>
+                        <p class="card-text">总用例数</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 详细结果列表 -->
+        <div class="card shadow-sm d-none" id="detailCard">
+            <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+                <span>测试结果详情</span>
+                <div>
+                    <span class="badge bg-secondary me-2">模块</span>
+                    <span class="badge bg-info text-dark me-2">接口</span>
+                    <span class="badge bg-warning text-dark">用例</span>
+                </div>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th width="10%">模块</th>
+                                <th width="25%">接口</th>
+                                <th width="30%">测试用例</th>
+                                <th width="10%">结果</th>
+                                <th width="15%">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="resultTableBody">
+                            <!-- Data rows will be inserted here -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 详情模态框 -->
+<div class="modal fade" id="detailModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">用例执行详情</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <h6>API 信息</h6>
+                <p><span class="badge bg-primary" id="modalMethod">GET</span> <code id="modalUrl">/api/test</code></p>
+                
+                <hr>
+                <h6>Curl 命令</h6>
+                <pre id="modalCurl"></pre>
+                
+                <hr>
+                <h6>响应内容</h6>
+                <div class="row">
+                    <div class="col-md-3"><strong>状态码:</strong> <span id="modalStatus">200</span></div>
+                    <div class="col-md-3"><strong>耗时:</strong> <span id="modalDuration">100ms</span></div>
+                </div>
+                <pre id="modalResponse" class="mt-2"></pre>
+                
+                <hr>
+                <h6>LLM 校验结果</h6>
+                <div class="alert" id="modalVerificationClass">
+                    <strong id="modalVerificationResult">PASS</strong>
+                    <p class="mb-0 mt-2" id="modalVerificationReason"></p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+    let currentTaskId = null;
+    let pollInterval = null;
+
+    document.getElementById('taskForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        const programName = document.getElementById('programName').value;
+        const swaggerUrl = document.getElementById('swaggerUrl').value;
+        const extra = document.getElementById('extra').value;
+        
+        // UI Update
+        const btn = document.getElementById('runBtn');
+        const spinner = btn.querySelector('.spinner-border');
+        btn.disabled = true;
+        spinner.classList.remove('d-none');
+        
+        try {
+            const response = await fetch('/api/project/run', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ programName, swaggerUrl, extra })
+            });
+            
+            if (!response.ok) throw new Error('Failed to start task');
+            
+            const data = await response.json();
+            currentTaskId = data.taskId;
+            
+            // Switch to result view
+            document.getElementById('resultSection').classList.remove('d-none');
+            document.getElementById('statusCard').classList.remove('d-none');
+            document.getElementById('summaryCard').classList.add('d-none');
+            document.getElementById('actionToolbar').classList.add('d-none');
+            document.getElementById('detailCard').classList.add('d-none');
+            document.getElementById('resultTableBody').innerHTML = ''; // Clear previous results
+            
+            // Start polling
+            pollInterval = setInterval(checkStatus, 2000);
+            
+        } catch (err) {
+            alert('启动测试失败: ' + err.message);
+            btn.disabled = false;
+            spinner.classList.add('d-none');
+        }
+    });
+
+    async function rerunTask() {
+        if (!currentTaskId) return;
+        
+        const btn = document.getElementById('rerunBtn');
+        btn.disabled = true;
+        
+        try {
+            const response = await fetch(`/api/project/rerun/${currentTaskId}`, {
+                method: 'POST'
+            });
+            
+            if (!response.ok) throw new Error('Failed to restart task');
+            
+            const data = await response.json();
+            currentTaskId = data.taskId; // Update to new task ID
+            
+            // Switch UI to running state
+            document.getElementById('statusCard').classList.remove('d-none');
+            document.getElementById('statusTitle').innerText = '正在重新运行测试...';
+            document.getElementById('statusText').innerText = '正在执行请求并进行本地校验...';
+            document.getElementById('progressBar').classList.add('progress-bar-animated');
+            document.getElementById('progressBar').classList.remove('bg-danger');
+            
+            // Hide results temporarily
+            document.getElementById('summaryCard').classList.add('d-none');
+            document.getElementById('detailCard').classList.add('d-none');
+            document.getElementById('actionToolbar').classList.add('d-none');
+            
+            // Start polling
+            pollInterval = setInterval(checkStatus, 2000);
+            
+        } catch (err) {
+            alert('重试失败: ' + err.message);
+            btn.disabled = false;
+        }
+    }
+
+    async function checkStatus() {
+        try {
+            const response = await fetch(`/api/project/task/${currentTaskId}`);
+            const data = await response.json();
+            
+            if (data.status === 'COMPLETED') {
+                clearInterval(pollInterval);
+                showResults(data.result);
+                document.getElementById('statusCard').classList.add('d-none');
+                document.getElementById('runBtn').disabled = false;
+                document.getElementById('runBtn').querySelector('.spinner-border').classList.add('d-none');
+            } else if (data.status === 'FAILED') {
+                clearInterval(pollInterval);
+                document.getElementById('statusTitle').innerText = '测试执行失败';
+                document.getElementById('statusText').innerText = data.error || '未知错误';
+                document.getElementById('progressBar').classList.remove('progress-bar-animated');
+                document.getElementById('progressBar').classList.add('bg-danger');
+                document.getElementById('runBtn').disabled = false;
+                document.getElementById('runBtn').querySelector('.spinner-border').classList.add('d-none');
+            }
+        } catch (err) {
+            console.error('Polling error', err);
+        }
+    }
+
+    function showResults(result) {
+        if (!result || !result.executionResults) return;
+        
+        const results = result.executionResults;
+        const passCount = results.filter(r => r.verificationPassed).length;
+        const failCount = results.length - passCount;
+        
+        document.getElementById('passCount').innerText = passCount;
+        document.getElementById('failCount').innerText = failCount;
+        document.getElementById('totalCount').innerText = results.length;
+        
+        document.getElementById('summaryCard').classList.remove('d-none');
+        document.getElementById('detailCard').classList.remove('d-none');
+        document.getElementById('actionToolbar').classList.remove('d-none');
+        document.getElementById('rerunBtn').disabled = false;
+        
+        const tbody = document.getElementById('resultTableBody');
+        tbody.innerHTML = '';
+        
+        results.forEach((r, index) => {
+            // Extract module from path
+            // Example: http://host/api/user/list -> /api/user/list -> api
+            // Example: /v1/order/create -> v1
+            let module = 'root';
+            try {
+                const urlObj = new URL(r.url, 'http://dummy.com'); // handle relative paths if any
+                const pathParts = urlObj.pathname.split('/').filter(p => p);
+                if (pathParts.length > 0) {
+                    module = pathParts[0];
+                }
+            } catch (e) {
+                // Fallback for relative paths without leading slash or other weird formats
+                module = r.url.split('/')[0] || 'root';
+            }
+            
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td><span class="module-badge">${module}</span></td>
+                <td>
+                    <div class="fw-bold">${r.method}</div>
+                    <div class="small text-muted text-break">${r.url}</div>
+                </td>
+                <td>
+                    <div class="fw-bold">${r.caseName || 'Unknown Case'}</div>
+                    <div class="small text-muted">${r.scenario || ''}</div>
+                </td>
+                <td>
+                    ${r.verificationPassed 
+                        ? '<span class="badge bg-success status-badge">PASS</span>' 
+                        : '<span class="badge bg-danger status-badge">FAIL</span>'}
+                </td>
+                <td>
+                    <button class="btn btn-sm btn-outline-primary" onclick="showDetail(${index})">查看详情</button>
+                </td>
+            `;
+            tbody.appendChild(tr);
+        });
+        
+        // Store results globally for modal access
+        window.currentResults = results;
+    }
+
+    window.showDetail = function(index) {
+        const r = window.currentResults[index];
+        const modal = new bootstrap.Modal(document.getElementById('detailModal'));
+        
+        document.getElementById('modalMethod').innerText = r.method;
+        document.getElementById('modalUrl').innerText = r.url;
+        document.getElementById('modalCurl').innerText = r.curlCommand;
+        document.getElementById('modalStatus').innerText = r.statusCode;
+        document.getElementById('modalDuration').innerText = r.durationMs + 'ms';
+        document.getElementById('modalResponse').innerText = r.responseBody;
+        
+        const verifyClass = r.verificationPassed ? 'alert-success' : 'alert-danger';
+        const verifyBox = document.getElementById('modalVerificationClass');
+        verifyBox.className = 'alert ' + verifyClass;
+        
+        document.getElementById('modalVerificationResult').innerText = r.verificationPassed ? '测试通过 (PASS)' : '测试失败 (FAIL)';
+        document.getElementById('modalVerificationReason').innerText = r.verificationReason;
+        
+        modal.show();
+    }
+</script>
+</body>
+</html>

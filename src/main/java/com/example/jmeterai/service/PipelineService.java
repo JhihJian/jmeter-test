@@ -47,6 +47,7 @@ public class PipelineService {
              log.warn("Base URL not found in Swagger, execution might fail if paths are relative.");
              baseUrl = "http://localhost:8080";
         }
+        result.baseUrl = baseUrl;
         
         int endpointIndex = 0;
         int totalEndpoints = info.endpoints.size();
@@ -87,29 +88,22 @@ public class PipelineService {
                         ExecutionResult execResult = curlExecutorService.executeOne(tc, baseUrl);
                         execResult.scenario = scenario;
 
-                        // c. Verification (LLM Analysis)
-                        log.info("      Verifying result for case: {}", tc.name);
-                        String verifyJson = llmService.callLlm(
-                            PromptPresets.verificationSystemPrompt(),
-                            PromptPresets.verificationUserPrompt(tc, execResult, endpointJson)
-                        );
-                        if (log.isDebugEnabled()) {
-                            log.debug("      Verification Response: {}", verifyJson);
-                        }
-                        
-                        // Parse verification result
+                        // c. Generate Assertions & Verify
+                        log.info("      Generating assertions for case: {}", tc.name);
                         try {
-                             com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-                             com.fasterxml.jackson.databind.JsonNode verifyNode = mapper.readTree(ModelUtils.stripCodeFences(verifyJson));
-                             execResult.verificationPassed = verifyNode.path("passed").asBoolean(false);
-                             execResult.verificationReason = verifyNode.path("reason").asText("No reason provided");
-                             
-                             // Override success flag based on verification
-                             execResult.success = execResult.verificationPassed;
+                            String assertionsJson = llmService.callLlm(
+                                PromptPresets.assertionGenerationSystemPrompt(),
+                                PromptPresets.assertionGenerationUserPrompt(tc, execResult, endpointJson)
+                            );
+                            List<Assertion> assertions = testCaseGenerator.parseAssertions(assertionsJson);
+                            tc.assertions = assertions;
+                            log.info("      Generated {} assertions", assertions.size());
                         } catch (Exception e) {
-                             log.warn("Verification parsing failed: " + e.getMessage());
-                             execResult.verificationReason = "Verification parsing failed";
+                            log.warn("Assertion generation failed: " + e.getMessage());
                         }
+
+                        // Verify locally
+                        verifyLocally(tc, execResult);
                         
                         allResults.add(execResult);
                         log.info("      Result: {} - Reason: {}", (execResult.success ? "PASS" : "FAIL"), execResult.verificationReason);
@@ -137,7 +131,7 @@ public class PipelineService {
         return result;
     }
 
-    private SummaryMetrics calculateMetrics(List<ExecutionResult> results) {
+    public SummaryMetrics calculateMetrics(List<ExecutionResult> results) {
         SummaryMetrics m = new SummaryMetrics();
         m.total = results.size();
         m.success = results.stream().filter(r -> r.success).count();
@@ -171,5 +165,108 @@ public class PipelineService {
         if (sorted.isEmpty()) return 0;
         int index = (int) Math.ceil(p * sorted.size()) - 1;
         return sorted.get(Math.max(0, index));
+    }
+
+    public List<ExecutionResult> reRunTestCases(List<TestCase> cases, String baseUrl) {
+        List<ExecutionResult> results = new java.util.ArrayList<>();
+        for (TestCase tc : cases) {
+            log.info("Re-running Case: {}", tc.name);
+            ExecutionResult execResult = curlExecutorService.executeOne(tc, baseUrl);
+            
+            // Verify locally
+            verifyLocally(tc, execResult);
+            
+            results.add(execResult);
+        }
+        return results;
+    }
+
+    private void verifyLocally(TestCase tc, ExecutionResult result) {
+        if (tc.assertions == null || tc.assertions.isEmpty()) {
+            // Default verification if no assertions
+             if (result.statusCode >= 200 && result.statusCode < 300) {
+                 result.success = true;
+                 result.verificationPassed = true;
+                 result.verificationReason = "No assertions generated, assumed success (2xx)";
+             } else {
+                 result.success = false;
+                 result.verificationPassed = false;
+                 result.verificationReason = "No assertions generated, status code " + result.statusCode;
+             }
+             return;
+        }
+
+        boolean allPassed = true;
+        StringBuilder reasons = new StringBuilder();
+        
+        for (Assertion a : tc.assertions) {
+            boolean passed = false;
+            String actual = "";
+            try {
+                if ("statusCode".equals(a.type)) {
+                    int expected = Integer.parseInt(a.expected);
+                    passed = (result.statusCode == expected);
+                    actual = String.valueOf(result.statusCode);
+                } else if ("bodyContains".equals(a.type)) {
+                    passed = result.responseBody != null && result.responseBody.contains(a.expected);
+                    actual = "Body content";
+                } else if ("responseTime".equals(a.type)) {
+                    long expected = Long.parseLong(a.expected);
+                    passed = result.durationMs < expected;
+                    actual = result.durationMs + "ms";
+                } else if ("jsonPath".equals(a.type)) {
+                     com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+                     com.fasterxml.jackson.databind.JsonNode root = mapper.readTree(result.responseBody);
+                     passed = checkJsonPath(root, a.expression, a.operator, a.expected);
+                     actual = "JsonPath result";
+                }
+            } catch (Exception e) {
+                passed = false;
+                actual = "Error: " + e.getMessage();
+            }
+            
+            if (!passed) {
+                allPassed = false;
+                reasons.append("[").append(a.failureMessage).append(" (Expected: ").append(a.expected).append(", Actual: ").append(actual).append(")] ");
+            }
+        }
+        
+        result.verificationPassed = allPassed;
+        result.success = allPassed;
+        result.verificationReason = allPassed ? "All assertions passed" : reasons.toString();
+    }
+
+    private boolean checkJsonPath(com.fasterxml.jackson.databind.JsonNode root, String expression, String operator, String expected) {
+        if (expression == null) return false;
+        if (expression.startsWith("$.")) expression = expression.substring(2);
+        
+        String[] parts = expression.split("\\.");
+        com.fasterxml.jackson.databind.JsonNode current = root;
+        for (String part : parts) {
+            if (current == null) return false;
+            if (part.contains("[")) {
+                String name = part.substring(0, part.indexOf("["));
+                String indexStr = part.substring(part.indexOf("[")+1, part.indexOf("]"));
+                int index = Integer.parseInt(indexStr);
+                if (!name.isEmpty()) current = current.path(name);
+                current = current.path(index);
+            } else {
+                current = current.path(part);
+            }
+        }
+        
+        if (current.isMissingNode()) return false;
+        
+        String val = current.asText();
+        if ("equals".equals(operator)) return val.equals(expected);
+        if ("contains".equals(operator)) return val.contains(expected);
+        if ("notContains".equals(operator)) return !val.contains(expected);
+        if ("greaterThan".equals(operator)) {
+            try { return Double.parseDouble(val) > Double.parseDouble(expected); } catch (Exception e) { return false; }
+        }
+        if ("lessThan".equals(operator)) {
+            try { return Double.parseDouble(val) < Double.parseDouble(expected); } catch (Exception e) { return false; }
+        }
+        return true;
     }
 }

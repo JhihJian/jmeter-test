@@ -2,6 +2,8 @@ package com.example.jmeterai.model;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.List;
+import java.util.ArrayList;
 
 public class TestCase {
   public String name;
@@ -12,4 +14,5 @@ public class TestCase {
   public Map<String,String> queryParams = new LinkedHashMap<>();
   public Map<String,String> pathParams = new LinkedHashMap<>();
   public String goal;
+  public List<Assertion> assertions = new ArrayList<>();
 }

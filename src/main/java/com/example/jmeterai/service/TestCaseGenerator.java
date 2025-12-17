@@ -209,4 +209,27 @@ public class TestCaseGenerator {
     }
     return out;
   }
+
+  public List<com.example.jmeterai.model.Assertion> parseAssertions(String content) {
+    String s = com.example.jmeterai.util.ModelUtils.stripCodeFences(content);
+    List<com.example.jmeterai.model.Assertion> out = new ArrayList<>();
+    try {
+      com.fasterxml.jackson.databind.ObjectMapper m = new com.fasterxml.jackson.databind.ObjectMapper();
+      com.fasterxml.jackson.databind.JsonNode root = m.readTree(s);
+      if (root.isArray()) {
+        for (com.fasterxml.jackson.databind.JsonNode node : root) {
+          com.example.jmeterai.model.Assertion a = new com.example.jmeterai.model.Assertion();
+          a.type = node.path("type").asText();
+          a.expression = node.path("expression").asText(null);
+          a.operator = node.path("operator").asText();
+          a.expected = node.path("expected").asText();
+          a.successMessage = node.path("successMessage").asText();
+          a.failureMessage = node.path("failureMessage").asText();
+          out.add(a);
+        }
+      }
+    } catch (Exception e) {
+    }
+    return out;
+  }
 }
