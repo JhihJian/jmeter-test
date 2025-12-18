@@ -172,42 +172,48 @@ public class TestCaseGenerator {
       com.fasterxml.jackson.databind.JsonNode arr = root.isArray() ? root : root.path("cases");
       if (arr != null && arr.isArray()) {
         for (com.fasterxml.jackson.databind.JsonNode c : arr) {
-          TestCase tc = new TestCase();
-          tc.name = c.path("name").asText("");
-          tc.method = c.path("method").asText("");
-          tc.path = c.path("path").asText("");
-          tc.body = c.path("body").asText("");
-          com.fasterxml.jackson.databind.JsonNode headers = c.path("headers");
-          if (headers.isObject()) {
-            java.util.Iterator<String> it = headers.fieldNames();
-            while (it.hasNext()) {
-              String k = it.next();
-              tc.headers.put(k, headers.path(k).asText(""));
-            }
-          }
-          com.fasterxml.jackson.databind.JsonNode qps = c.path("queryParams");
-          if (qps.isObject()) {
-            java.util.Iterator<String> it = qps.fieldNames();
-            while (it.hasNext()) {
-              String k = it.next();
-              tc.queryParams.put(k, qps.path(k).asText(""));
-            }
-          }
-          com.fasterxml.jackson.databind.JsonNode pps = c.path("pathParams");
-          if (pps.isObject()) {
-            java.util.Iterator<String> it = pps.fieldNames();
-            while (it.hasNext()) {
-              String k = it.next();
-              tc.pathParams.put(k, pps.path(k).asText(""));
-            }
-          }
-          if (tc.name == null || tc.name.isEmpty()) tc.name = "用例: " + tc.method + " " + tc.path + " - 基本可用性";
+          TestCase tc = parseSingleCase(c);
           out.add(tc);
         }
       }
     } catch (Exception e) {
     }
     return out;
+  }
+
+  public TestCase parseSingleCase(com.fasterxml.jackson.databind.JsonNode c) {
+    TestCase tc = new TestCase();
+    tc.name = c.path("name").asText("");
+    tc.method = c.path("method").asText("");
+    tc.path = c.path("path").asText("");
+    tc.body = c.path("body").asText("");
+    com.fasterxml.jackson.databind.JsonNode headers = c.path("headers");
+    if (headers.isObject()) {
+      java.util.Iterator<String> it = headers.fieldNames();
+      while (it.hasNext()) {
+        String k = it.next();
+        tc.headers.put(k, headers.path(k).asText(""));
+      }
+    }
+    com.fasterxml.jackson.databind.JsonNode qps = c.path("queryParams");
+    if (qps.isObject()) {
+      java.util.Iterator<String> it = qps.fieldNames();
+      while (it.hasNext()) {
+        String k = it.next();
+        tc.queryParams.put(k, qps.path(k).asText(""));
+      }
+    }
+    com.fasterxml.jackson.databind.JsonNode pps = c.path("pathParams");
+    if (pps.isObject()) {
+      java.util.Iterator<String> it = pps.fieldNames();
+      while (it.hasNext()) {
+        String k = it.next();
+        tc.pathParams.put(k, pps.path(k).asText(""));
+      }
+    }
+    tc.goal = c.path("goal").asText(tc.goal);
+    if (tc.name == null || tc.name.isEmpty()) tc.name = "用例: " + tc.method + " " + tc.path + " - 基本可用性";
+    return tc;
   }
 
   public List<com.example.jmeterai.model.Assertion> parseAssertions(String content) {
@@ -229,6 +235,7 @@ public class TestCaseGenerator {
         }
       }
     } catch (Exception e) {
+        org.slf4j.LoggerFactory.getLogger(TestCaseGenerator.class).error("Failed to parse assertions JSON: " + content, e);
     }
     return out;
   }

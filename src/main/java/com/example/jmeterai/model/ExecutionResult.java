@@ -18,4 +18,11 @@ public class ExecutionResult {
     
     // Grouping info
     public java.util.List<String> tags;
+    
+    public boolean interfaceAbnormal;
+    public String abnormalDescription;
+    public boolean caseAdjusted;
+    public String adjustmentNote;
+    public java.util.List<Assertion> assertions;
+    public String assertionReason;
 }

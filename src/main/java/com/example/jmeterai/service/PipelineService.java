@@ -104,21 +104,103 @@ public class PipelineService {
                         execResult.scenario = scenario;
                         execResult.tags = endpoint.tags;
 
-                        // c. Generate Assertions & Verify
-                        log.info("      Generating assertions for case: {}", tc.name);
-                        try {
-                            String assertionsJson = llmService.callLlm(
-                                PromptPresets.assertionGenerationSystemPrompt(),
-                                PromptPresets.assertionGenerationUserPrompt(tc, execResult, endpointJson)
-                            );
-                            List<Assertion> assertions = testCaseGenerator.parseAssertions(assertionsJson);
-                            tc.assertions = assertions;
-                            log.info("      Generated {} assertions", assertions.size());
-                        } catch (Exception e) {
-                            log.warn("Assertion generation failed: " + e.getMessage());
+                        log.info("      Decision and assertions for case: {}", tc.name);
+                        int retryCount = 0;
+                        int maxRetries = 3;
+                        boolean decided = false;
+                        while (retryCount < maxRetries && !decided) {
+                            try {
+                                String decisionJson = llmService.callLlm(
+                                    PromptPresets.caseDecisionSystemPrompt(),
+                                    PromptPresets.caseDecisionUserPrompt(tc, execResult, endpointJson)
+                                );
+                                String cleaned = ModelUtils.stripCodeFences(decisionJson);
+                                com.fasterxml.jackson.databind.ObjectMapper om = new com.fasterxml.jackson.databind.ObjectMapper();
+                                com.fasterxml.jackson.databind.JsonNode root = om.readTree(cleaned);
+                                boolean conforms = root.path("conforms").asBoolean(false);
+                                String reason = root.path("reason").asText("");
+                                if (conforms) {
+                                    List<Assertion> assertions = testCaseGenerator.parseAssertions(root.path("assertions").toString());
+                                    if (assertions != null && !assertions.isEmpty()) {
+                                        tc.assertions = assertions;
+                                        execResult.assertions = assertions;
+                                        execResult.assertionReason = reason;
+                                        execResult.verificationReason = reason;
+                                        decided = true;
+                                    } else {
+                                        retryCount++;
+                                    }
+                                } else {
+                                    String action = root.path("action").asText("");
+                                    if ("adjust_case".equals(action)) {
+                                        com.fasterxml.jackson.databind.JsonNode ac = root.path("adjustedCase");
+                                        TestCase adjusted = testCaseGenerator.parseSingleCase(ac);
+                                        if (authorization != null && !authorization.isEmpty()) {
+                                            if (adjusted.headers == null) adjusted.headers = new java.util.LinkedHashMap<>();
+                                            adjusted.headers.put("Authorization", authorization);
+                                        }
+                                        adjusted.tags = endpoint.tags;
+                                        allCases.add(adjusted);
+                                        ExecutionResult adjustedResult = curlExecutorService.executeOne(adjusted, baseUrl);
+                                        adjustedResult.scenario = scenario;
+                                        adjustedResult.tags = endpoint.tags;
+                                        String decision2Json = llmService.callLlm(
+                                            PromptPresets.caseDecisionSystemPrompt(),
+                                            PromptPresets.caseDecisionUserPrompt(adjusted, adjustedResult, endpointJson)
+                                        );
+                                        String cleaned2 = ModelUtils.stripCodeFences(decision2Json);
+                                        com.fasterxml.jackson.databind.JsonNode root2 = om.readTree(cleaned2);
+                                        boolean conforms2 = root2.path("conforms").asBoolean(false);
+                                        String reason2 = root2.path("reason").asText("");
+                                        if (conforms2) {
+                                            List<Assertion> assertions2 = testCaseGenerator.parseAssertions(root2.path("assertions").toString());
+                                            adjusted.assertions = assertions2;
+                                            adjustedResult.assertions = assertions2;
+                                            adjustedResult.assertionReason = reason2;
+                                            adjustedResult.verificationReason = reason2;
+                                        } else {
+                                            String abnormalDesc2 = root2.path("abnormalDescription").asText(reason2);
+                                            adjustedResult.interfaceAbnormal = true;
+                                            adjustedResult.abnormalDescription = abnormalDesc2;
+                                            adjustedResult.verificationReason = abnormalDesc2;
+                                        }
+                                        verifyLocally(adjusted, adjustedResult);
+                                        allResults.add(adjustedResult);
+                                        execResult.caseAdjusted = true;
+                                        execResult.adjustmentNote = reason;
+                                        execResult.success = false;
+                                        execResult.verificationPassed = false;
+                                        if (execResult.verificationReason == null || execResult.verificationReason.isEmpty()) {
+                                            execResult.verificationReason = reason;
+                                        }
+                                        decided = true;
+                                    } else if ("mark_abnormal".equals(action)) {
+                                        String abnormalDesc = root.path("abnormalDescription").asText(reason);
+                                        execResult.interfaceAbnormal = true;
+                                        execResult.abnormalDescription = abnormalDesc;
+                                        execResult.verificationReason = abnormalDesc;
+                                        decided = true;
+                                    } else {
+                                        retryCount++;
+                                    }
+                                }
+                            } catch (Exception e) {
+                                retryCount++;
+                            }
                         }
-
-                        // Verify locally
+                        if (!decided) {
+                            try {
+                                String assertionsJson = llmService.callLlm(
+                                    PromptPresets.assertionGenerationSystemPrompt(),
+                                    PromptPresets.assertionGenerationUserPrompt(tc, execResult, endpointJson)
+                                );
+                                List<Assertion> assertions = testCaseGenerator.parseAssertions(assertionsJson);
+                                if (assertions != null && !assertions.isEmpty()) {
+                                    tc.assertions = assertions;
+                                    execResult.assertions = assertions;
+                                }
+                            } catch (Exception e) {}
+                        }
                         verifyLocally(tc, execResult);
                         
                         allResults.add(execResult);
@@ -199,6 +281,22 @@ public class PipelineService {
     }
 
     private void verifyLocally(TestCase tc, ExecutionResult result) {
+        if (result.interfaceAbnormal) {
+            result.success = false;
+            result.verificationPassed = false;
+            if (result.verificationReason == null || result.verificationReason.isEmpty()) {
+                result.verificationReason = result.abnormalDescription == null ? "接口异常" : result.abnormalDescription;
+            }
+            return;
+        }
+        if (result.caseAdjusted) {
+            result.success = false;
+            result.verificationPassed = false;
+            if (result.verificationReason == null || result.verificationReason.isEmpty()) {
+                result.verificationReason = result.adjustmentNote == null ? "用例已调整，原结果不符合预期" : result.adjustmentNote;
+            }
+            return;
+        }
         if (tc.assertions == null || tc.assertions.isEmpty()) {
             // Default verification if no assertions
              if (result.statusCode >= 200 && result.statusCode < 300) {

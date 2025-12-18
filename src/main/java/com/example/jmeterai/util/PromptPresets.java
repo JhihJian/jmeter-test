@@ -10,6 +10,7 @@ public class PromptPresets {
     public static String singleInterfaceSystemPrompt() {
         return """
 你是资深测试工程师。基于提供的单个接口 OpenAPI 定义，针对指定的“质量场景”生成测试用例 JSON。
+注意，如果接口参数中包含phone入参，你应该生成11位随机的手机号进行测试
 每个用例包含：name, method, path, headers(对象), queryParams(对象), pathParams(对象), body(字符串), goal(字符串)。
 仅输出 JSON（数组或包含 cases 字段的对象）。
 """;
@@ -37,6 +38,13 @@ public class PromptPresets {
 断言类型(type)支持: "statusCode", "bodyContains", "jsonPath", "responseTime".
 操作符(operator)支持: "equals", "contains", "notContains", "greaterThan", "lessThan".
 输出 JSON 数组，每个元素包含: type, expression(仅jsonPath需要), operator, expected, successMessage, failureMessage.
+
+重要规则：
+1. 即使 HTTP 状态码为 200，也必须检查响应体中的业务状态码（如 code, status, errCode 等）是否表示成功。
+2. 如果业务状态码表示错误（例如 code != 0 或 code != 200），必须生成断言来捕获该错误（预期失败用例除外）。
+3. 对于预期成功的用例，如果返回了业务错误信息（如 msg, message, error 等），应生成断言确保这些字段不包含错误关键词，或直接校验业务状态码。
+4. **必须输出有效的纯 JSON 格式**，不要包含 Markdown 代码块标记（如 ```json ... ```）。
+
 示例:
 [
   {
@@ -50,9 +58,16 @@ public class PromptPresets {
     "type": "jsonPath",
     "expression": "$.code",
     "operator": "equals",
-    "expected": "0",
+    "expected": "200",
     "successMessage": "业务码正常",
     "failureMessage": "业务码错误"
+  },
+  {
+    "type": "bodyContains",
+    "operator": "notContains",
+    "expected": "手机号不能为空",
+    "successMessage": "未包含错误信息",
+    "failureMessage": "响应包含错误信息"
   }
 ]
 """;
@@ -75,22 +90,25 @@ Status Code: %d
 Response Body: %s
 
 请根据实际响应生成合理的断言列表。
-如果响应包含动态字段（如时间戳、ID），请不要对具体值做严格相等断言，而是检查格式或存在性（如 jsonPath 检查非空）。
-如果响应是错误（4xx/5xx），且用例预期是失败，请生成断言检查错误码或错误信息。
+1. 如果响应包含动态字段（如时间戳、ID），请不要对具体值做严格相等断言，而是检查格式或存在性（如 jsonPath 检查非空）。
+2. 如果响应是错误（4xx/5xx），且用例预期是失败，请生成断言检查错误码或错误信息。
+3. **特别注意**：很多系统在业务异常时仍返回 HTTP 200，但会在 Body 中包含错误码（如 "code": "6002"）或错误信息（如 "msg": "..."）。
+   - 如果用例预期成功，请务必增加对 Body 中业务成功标识（如 code=200/0/success）的断言，防止假阳性通过。
+   - 如果用例预期失败（负面测试），请增加对 Body 中特定错误码或错误信息的断言。
 """.formatted(endpointJson, tc.name, tc.goal, tc.method, result.url, tc.body, result.statusCode, result.responseBody);
     }
 
-    public static String verificationSystemPrompt() {
-        return """
+  public static String verificationSystemPrompt() {
+    return """
 你是智能测试验证专家。基于接口定义、测试用例和实际执行结果（状态码、响应体），判断测试是否通过。
 对于负面测试（如异常输入），如果接口返回 4xx 并包含错误提示，应视为“通过”。
 对于正面测试，如果接口返回 2xx 且数据符合预期，视为“通过”。
 仅输出 JSON，格式：{"passed": true/false, "reason": "分析原因..."}
 """;
-    }
+  }
 
-    public static String verificationUserPrompt(TestCase tc, ExecutionResult result, String endpointJson) {
-        return """
+  public static String verificationUserPrompt(TestCase tc, ExecutionResult result, String endpointJson) {
+    return """
 接口定义:
 %s
 
@@ -107,11 +125,69 @@ Response Body: %s
 Error Message: %s
 
 请判断该测试是否符合预期（passed）。注意：
-1. 如果是用例是预期失败（如 goal 包含 '失败'、'异常'、'校验'），且服务器返回了 400/401/403/422 等错误码，应判定为 passed=true。
+1. 如果是用例是预期失败（如 goal 包含 '失败'、'异常'、'校验'），且服务器返回了 400/401/403/422 等错误码，或者返回 200 但 Body 中包含明确的业务错误码/信息，应判定为 passed=true。
 2. 如果是用例是预期成功，但返回 4xx/5xx，判定为 passed=false。
-3. 如果返回 200 但响应体包含错误信息（业务错误），判定为 passed=false。
+3. 如果返回 200，必须检查 Body 内容。如果 Body 包含业务错误码（如 code!="200"且code!="0"）或错误信息（如 "msg":"xxx不能为空"），判定为 passed=false。
 """.formatted(endpointJson, tc.name, tc.goal, tc.method, result.url, tc.body, result.statusCode, result.responseBody, result.errorMessage);
-    }
+  }
+
+  public static String caseDecisionSystemPrompt() {
+    return """
+你是接口测试裁判与断言生成器。基于接口定义、测试用例与实际响应，先判断响应是否符合该用例设计；若符合，直接生成断言；若不符合，则在“调整用例”与“标记接口异常”两者中选择更合理的一项并输出结构化决定。
+仅输出一个 JSON 对象（不包含代码块）。
+字段：
+- conforms: true/false
+- reason: string
+- action: "none" | "adjust_case" | "mark_abnormal"
+- assertions: 当 conforms=true 且 action="none" 时的断言数组，每项包含 type, expression(可选), operator, expected, successMessage, failureMessage
+- adjustedCase: 当 action="adjust_case" 时提供单个用例对象，包含 name, method, path, headers(对象), queryParams(对象), pathParams(对象), body(字符串), goal(字符串)
+- abnormalDescription: 当 action="mark_abnormal" 时给出中文描述，说明不符合预期的原因
+
+断言生成规则与前述一致：即使 HTTP 200 也需校验业务码/成功标识；负面用例要针对错误码/错误信息生成断言；避免对动态字段做严格相等。
+""";
+  }
+
+  public static String caseDecisionUserPrompt(TestCase tc, ExecutionResult result, String endpointJson) {
+    return """
+接口定义:
+%s
+
+测试用例:
+名称: %s
+目标: %s
+Method: %s
+Path: %s
+Headers: %s
+QueryParams: %s
+PathParams: %s
+Request Body: %s
+
+实际执行结果:
+Status Code: %d
+Response Body: %s
+耗时(ms): %d
+
+请先判断该响应是否符合该用例的设计目标（conforms）。如果符合，直接输出断言数组（assertions），并将 action 设为 "none"。
+如果不符合，请在两种策略中选择其一：
+1) 调整用例（adjust_case）：给出 adjustedCase（完整用例对象）与 reason，说明如何调整以更符合接口实际行为。
+2) 标记接口异常（mark_abnormal）：给出 abnormalDescription（中文原因），说明该接口可能返回异常或文档/实现不一致。
+
+输出为上述结构的 JSON 对象。
+""".formatted(
+      endpointJson,
+      tc.name,
+      tc.goal,
+      tc.method,
+      tc.path,
+      tc.headers == null ? "{}" : new com.fasterxml.jackson.databind.ObjectMapper().valueToTree(tc.headers).toString(),
+      tc.queryParams == null ? "{}" : new com.fasterxml.jackson.databind.ObjectMapper().valueToTree(tc.queryParams).toString(),
+      tc.pathParams == null ? "{}" : new com.fasterxml.jackson.databind.ObjectMapper().valueToTree(tc.pathParams).toString(),
+      tc.body == null ? "" : tc.body,
+      result.statusCode,
+      result.responseBody == null ? "" : result.responseBody,
+      result.durationMs
+    );
+  }
 
   public static String jmxSystemPrompt() {
     return """

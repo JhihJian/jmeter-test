@@ -83,29 +83,36 @@
             </button>
         </div>
 
-        <!-- 结果概览 -->
         <div class="row mb-4 d-none" id="summaryCard">
-            <div class="col-md-4">
+            <div class="col-md-3">
                 <div class="card text-center border-success mb-3">
                     <div class="card-body">
                         <h3 class="card-title text-success" id="passCount">0</h3>
-                        <p class="card-text">测试通过</p>
+                        <p class="card-text">断言通过</p>
                     </div>
                 </div>
             </div>
-            <div class="col-md-4">
+            <div class="col-md-3">
                 <div class="card text-center border-danger mb-3">
                     <div class="card-body">
                         <h3 class="card-title text-danger" id="failCount">0</h3>
-                        <p class="card-text">测试失败</p>
+                        <p class="card-text">断言失败</p>
                     </div>
                 </div>
             </div>
-            <div class="col-md-4">
-                <div class="card text-center border-secondary mb-3">
+            <div class="col-md-3">
+                <div class="card text-center border-info mb-3">
                     <div class="card-body">
-                        <h3 class="card-title text-secondary" id="totalCount">0</h3>
-                        <p class="card-text">总用例数</p>
+                        <h3 class="card-title text-info" id="llmNormalCount">0</h3>
+                        <p class="card-text">LLM 正常</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card text-center border-warning mb-3">
+                    <div class="card-body">
+                        <h3 class="card-title text-warning" id="llmAbnormalCount">0</h3>
+                        <p class="card-text">LLM 异常</p>
                     </div>
                 </div>
             </div>
@@ -128,9 +135,10 @@
                             <tr>
                                 <th width="10%">模块</th>
                                 <th width="25%">接口</th>
-                                <th width="30%">测试用例</th>
-                                <th width="10%">结果</th>
-                                <th width="15%">操作</th>
+                                <th width="25%">测试用例</th>
+                                <th width="10%">LLM状态</th>
+                                <th width="10%">断言结果</th>
+                                <th width="10%">操作</th>
                             </tr>
                         </thead>
                         <tbody id="resultTableBody">
@@ -168,10 +176,42 @@
                 <pre id="modalResponse" class="mt-2"></pre>
                 
                 <hr>
-                <h6>LLM 校验结果</h6>
+                <h6>LLM 决策</h6>
+                <div class="alert" id="modalLlmDecisionClass">
+                    <strong id="modalLlmDecisionResult">LLM 标记正常</strong>
+                    <p class="mb-0 mt-2" id="modalLlmDecisionReason"></p>
+                </div>
+                
+                <hr>
+                <h6>断言生成理由</h6>
+                <div class="alert alert-info" id="modalAssertionReasonBox">
+                    <p class="mb-0" id="modalAssertionReason"></p>
+                </div>
+                
+                <hr>
+                <h6>断言校验结果</h6>
                 <div class="alert" id="modalVerificationClass">
-                    <strong id="modalVerificationResult">PASS</strong>
+                    <strong id="modalVerificationResult">断言通过</strong>
                     <p class="mb-0 mt-2" id="modalVerificationReason"></p>
+                </div>
+                
+                <hr>
+                <h6>LLM 生成的断言</h6>
+                <div class="table-responsive">
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th style="width: 12%">类型</th>
+                                <th style="width: 24%">表达式/字段</th>
+                                <th style="width: 16%">操作符</th>
+                                <th style="width: 18%">期望值</th>
+                                <th style="width: 15%">通过说明</th>
+                                <th style="width: 15%">失败说明</th>
+                            </tr>
+                        </thead>
+                        <tbody id="modalAssertionsList">
+                        </tbody>
+                    </table>
                 </div>
             </div>
         </div>
@@ -297,10 +337,13 @@
         const results = result.executionResults;
         const passCount = results.filter(r => r.verificationPassed).length;
         const failCount = results.length - passCount;
+        const llmAbnormalCount = results.filter(r => r.interfaceAbnormal).length;
+        const llmNormalCount = results.length - llmAbnormalCount;
         
         document.getElementById('passCount').innerText = passCount;
         document.getElementById('failCount').innerText = failCount;
-        document.getElementById('totalCount').innerText = results.length;
+        document.getElementById('llmNormalCount').innerText = llmNormalCount;
+        document.getElementById('llmAbnormalCount').innerText = llmAbnormalCount;
         
         document.getElementById('summaryCard').classList.remove('d-none');
         document.getElementById('detailCard').classList.remove('d-none');
@@ -343,18 +386,22 @@
                 // Cases
                 cases.forEach(r => {
                     const tr = document.createElement('tr');
+                    const llmBadge = r.interfaceAbnormal 
+                        ? '<span class="badge bg-warning text-dark status-badge">LLM 异常</span>' 
+                        : '<span class="badge bg-info text-dark status-badge">LLM 正常</span>';
+                    const assertBadge = r.verificationPassed 
+                        ? '<span class="badge bg-success status-badge">断言通过</span>' 
+                        : '<span class="badge bg-danger status-badge">断言失败</span>';
+                    const adjustedLabel = r.caseAdjusted ? '<span class="badge bg-secondary ms-2">已调整</span>' : '';
                     tr.innerHTML = `
                         <td style="width: 5%"></td>
                         <td style="width: 5%"></td>
                         <td>
                             <div class="fw-bold">${r.caseName || 'Unknown Case'}</div>
-                            <div class="small text-muted">${r.scenario || ''}</div>
+                            <div class="small text-muted">${r.scenario || ''}${adjustedLabel}</div>
                         </td>
-                        <td>
-                            ${r.verificationPassed 
-                                ? '<span class="badge bg-success status-badge">PASS</span>' 
-                                : '<span class="badge bg-danger status-badge">FAIL</span>'}
-                        </td>
+                        <td>${llmBadge}</td>
+                        <td>${assertBadge}</td>
                         <td>
                             <button class="btn btn-sm btn-outline-primary" onclick="showDetail(${r._originalIndex})">查看详情</button>
                         </td>
@@ -379,12 +426,45 @@
         document.getElementById('modalDuration').innerText = r.durationMs + 'ms';
         document.getElementById('modalResponse').innerText = r.responseBody;
         
+        const llmClass = r.interfaceAbnormal ? 'alert-warning' : 'alert-info';
+        const llmBox = document.getElementById('modalLlmDecisionClass');
+        llmBox.className = 'alert ' + llmClass;
+        const llmResultText = r.interfaceAbnormal ? 'LLM 标记异常' : (r.caseAdjusted ? 'LLM 决策：用例已调整' : 'LLM 标记正常');
+        const llmReasonText = r.interfaceAbnormal ? (r.abnormalDescription || '') : (r.caseAdjusted ? (r.adjustmentNote || '') : '符合用例设计');
+        document.getElementById('modalLlmDecisionResult').innerText = llmResultText;
+        document.getElementById('modalLlmDecisionReason').innerText = llmReasonText;
+
+        const assertionReason = r.assertionReason || '';
+        const assertionReasonBox = document.getElementById('modalAssertionReasonBox');
+        if (assertionReason) {
+            assertionReasonBox.classList.remove('d-none');
+            document.getElementById('modalAssertionReason').innerText = assertionReason;
+        } else {
+            assertionReasonBox.classList.add('d-none');
+            document.getElementById('modalAssertionReason').innerText = '';
+        }
+
         const verifyClass = r.verificationPassed ? 'alert-success' : 'alert-danger';
         const verifyBox = document.getElementById('modalVerificationClass');
         verifyBox.className = 'alert ' + verifyClass;
-        
-        document.getElementById('modalVerificationResult').innerText = r.verificationPassed ? '测试通过 (PASS)' : '测试失败 (FAIL)';
+        document.getElementById('modalVerificationResult').innerText = r.verificationPassed ? '断言通过' : '断言失败';
         document.getElementById('modalVerificationReason').innerText = r.verificationReason;
+        
+        const assertions = Array.isArray(r.assertions) ? r.assertions : [];
+        const listBody = document.getElementById('modalAssertionsList');
+        listBody.innerHTML = '';
+        assertions.forEach(a => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td><span class="badge bg-secondary">${a.type || ''}</span></td>
+                <td><code>${a.expression || '-'}</code></td>
+                <td>${a.operator || ''}</td>
+                <td><code>${a.expected || ''}</code></td>
+                <td>${a.successMessage || ''}</td>
+                <td>${a.failureMessage || ''}</td>
+            `;
+            listBody.appendChild(tr);
+        });
         
         modal.show();
     }
