@@ -15,4 +15,7 @@ public class ExecutionResult {
     public boolean verificationPassed;
     public String verificationReason;
     public QualityScenario scenario;
+    
+    // Grouping info
+    public java.util.List<String> tags;
 }

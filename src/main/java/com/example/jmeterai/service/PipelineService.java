@@ -21,13 +21,23 @@ public class PipelineService {
     @Autowired
     private CurlExecutorService curlExecutorService;
 
-    public ProjectResult runPipeline(String swaggerUrl, String programName, String extra) throws Exception {
+    public ProjectResult runPipeline(String swaggerUrl, String programName, String extra, List<String> tags, String authorization) throws Exception {
         ProjectResult result = new ProjectResult();
 
         // 1. API Understanding
         log.info("Downloading Swagger: {}", swaggerUrl);
         OpenApiExtractor extractor = new OpenApiExtractor();
         OpenApiExtractor.OpenApiInfo info = extractor.load(swaggerUrl);
+
+        // Filter endpoints by tags if provided
+        List<OpenApiExtractor.Endpoint> endpointsToTest = info.endpoints;
+        if (tags != null && !tags.isEmpty()) {
+            log.info("Filtering endpoints by tags: {}", tags);
+            endpointsToTest = info.endpoints.stream()
+                .filter(ep -> ep.tags != null && ep.tags.stream().anyMatch(tags::contains))
+                .collect(java.util.stream.Collectors.toList());
+            log.info("Filtered endpoints count: {} / {}", endpointsToTest.size(), info.endpoints.size());
+        }
 
         log.info("Analyzing API...");
         String understandingText = ModelUtils.stripCodeFences(llmService.callLlm(PromptPresets.understandingSystemPrompt(),
@@ -50,10 +60,10 @@ public class PipelineService {
         result.baseUrl = baseUrl;
         
         int endpointIndex = 0;
-        int totalEndpoints = info.endpoints.size();
+        int totalEndpoints = endpointsToTest.size();
 
         // Iterate endpoints
-        for (OpenApiExtractor.Endpoint endpoint : info.endpoints) {
+        for (OpenApiExtractor.Endpoint endpoint : endpointsToTest) {
             endpointIndex++;
             String endpointJson = extractor.getEndpointJson(info.root, endpoint.method, endpoint.path);
             if (endpointJson.isEmpty()) {
@@ -83,10 +93,16 @@ public class PipelineService {
                     
                     // b. Execute Cases immediately
                     for (TestCase tc : scenarioCases) {
+                        if (authorization != null && !authorization.isEmpty()) {
+                            if (tc.headers == null) tc.headers = new java.util.LinkedHashMap<>();
+                            tc.headers.put("Authorization", authorization);
+                        }
+                        tc.tags = endpoint.tags;
                         allCases.add(tc);
                         log.info("      Executing Case: {} (Goal: {})", tc.name, tc.goal);
                         ExecutionResult execResult = curlExecutorService.executeOne(tc, baseUrl);
                         execResult.scenario = scenario;
+                        execResult.tags = endpoint.tags;
 
                         // c. Generate Assertions & Verify
                         log.info("      Generating assertions for case: {}", tc.name);
@@ -172,6 +188,7 @@ public class PipelineService {
         for (TestCase tc : cases) {
             log.info("Re-running Case: {}", tc.name);
             ExecutionResult execResult = curlExecutorService.executeOne(tc, baseUrl);
+            execResult.tags = tc.tags;
             
             // Verify locally
             verifyLocally(tc, execResult);

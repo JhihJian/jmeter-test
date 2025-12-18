@@ -15,4 +15,5 @@ public class TestCase {
   public Map<String,String> pathParams = new LinkedHashMap<>();
   public String goal;
   public List<Assertion> assertions = new ArrayList<>();
+  public List<String> tags;
 }

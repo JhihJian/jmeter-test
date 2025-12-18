@@ -14,7 +14,12 @@ public class OpenApiExtractor {
   public static class Endpoint {
     public final String method;
     public final String path;
-    public Endpoint(String method, String path) { this.method = method; this.path = path; }
+    public final List<String> tags;
+    public Endpoint(String method, String path, List<String> tags) { 
+        this.method = method; 
+        this.path = path; 
+        this.tags = tags;
+    }
   }
   public static class OpenApiInfo {
     public final String rawPreview;
@@ -77,10 +82,17 @@ public class OpenApiExtractor {
           item.fieldNames().forEachRemaining(m -> {
             JsonNode op = item.path(m);
             String summary = op.path("summary").asText("");
+            
+            List<String> tags = new ArrayList<>();
+            JsonNode tagsNode = op.path("tags");
+            if (tagsNode.isArray()) {
+                tagsNode.forEach(t -> tags.add(t.asText()));
+            }
+
             sb.append(m.toUpperCase()).append(" ").append(p);
             if (!summary.isEmpty()) sb.append(" - ").append(summary);
             sb.append("\n");
-            res.endpoints.add(new Endpoint(m.toUpperCase(), p));
+            res.endpoints.add(new Endpoint(m.toUpperCase(), p, tags));
           });
         });
         res.preview = sb.toString();

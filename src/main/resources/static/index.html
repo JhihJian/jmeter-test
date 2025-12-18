@@ -41,6 +41,15 @@
                     <label for="extra" class="form-label">额外测试说明 (Prompt)</label>
                     <textarea class="form-control" id="extra" rows="3" placeholder="例如：重点测试订单创建接口的幂等性，或者忽略某些特定的 404 错误。"></textarea>
                 </div>
+                <div class="mb-3">
+                    <label for="tags" class="form-label">Swagger Tags 过滤 (可选)</label>
+                    <input type="text" class="form-control" id="tags" placeholder="例如：user-controller, order-controller (逗号分隔)">
+                    <div class="form-text">若指定，仅测试包含这些 Tag 的接口。留空则测试所有。</div>
+                </div>
+                <div class="mb-3">
+                    <label for="authorization" class="form-label">Authorization Header (可选)</label>
+                    <input type="text" class="form-control" id="authorization" placeholder="例如：Bearer eyJhbGciOiJIUzI1Ni... (若接口需要鉴权，请在此填入)">
+                </div>
                 <button type="submit" class="btn btn-primary w-100" id="runBtn">
                     <span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
                     开始测试
@@ -180,6 +189,9 @@
         const programName = document.getElementById('programName').value;
         const swaggerUrl = document.getElementById('swaggerUrl').value;
         const extra = document.getElementById('extra').value;
+        const tagsStr = document.getElementById('tags').value;
+        const tags = tagsStr ? tagsStr.split(/[,，]/).map(t => t.trim()).filter(t => t) : [];
+        const authorization = document.getElementById('authorization').value;
         
         // UI Update
         const btn = document.getElementById('runBtn');
@@ -191,7 +203,7 @@
             const response = await fetch('/api/project/run', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ programName, swaggerUrl, extra })
+                body: JSON.stringify({ programName, swaggerUrl, extra, tags, authorization })
             });
             
             if (!response.ok) throw new Error('Failed to start task');
@@ -297,45 +309,60 @@
         
         const tbody = document.getElementById('resultTableBody');
         tbody.innerHTML = '';
-        
+
+        // Grouping: Tag -> Interface -> Cases
+        const grouped = {};
         results.forEach((r, index) => {
-            // Extract module from path
-            // Example: http://host/api/user/list -> /api/user/list -> api
-            // Example: /v1/order/create -> v1
-            let module = 'root';
-            try {
-                const urlObj = new URL(r.url, 'http://dummy.com'); // handle relative paths if any
-                const pathParts = urlObj.pathname.split('/').filter(p => p);
-                if (pathParts.length > 0) {
-                    module = pathParts[0];
-                }
-            } catch (e) {
-                // Fallback for relative paths without leading slash or other weird formats
-                module = r.url.split('/')[0] || 'root';
-            }
+            r._originalIndex = index; 
+            // Use first tag or 'Uncategorized'
+            const tag = (r.tags && r.tags.length > 0) ? r.tags[0] : 'Uncategorized';
+            if (!grouped[tag]) grouped[tag] = {};
             
-            const tr = document.createElement('tr');
-            tr.innerHTML = `
-                <td><span class="module-badge">${module}</span></td>
-                <td>
-                    <div class="fw-bold">${r.method}</div>
-                    <div class="small text-muted text-break">${r.url}</div>
-                </td>
-                <td>
-                    <div class="fw-bold">${r.caseName || 'Unknown Case'}</div>
-                    <div class="small text-muted">${r.scenario || ''}</div>
-                </td>
-                <td>
-                    ${r.verificationPassed 
-                        ? '<span class="badge bg-success status-badge">PASS</span>' 
-                        : '<span class="badge bg-danger status-badge">FAIL</span>'}
-                </td>
-                <td>
-                    <button class="btn btn-sm btn-outline-primary" onclick="showDetail(${index})">查看详情</button>
-                </td>
-            `;
-            tbody.appendChild(tr);
+            const interfaceKey = r.method + ' ' + r.url;
+            if (!grouped[tag][interfaceKey]) grouped[tag][interfaceKey] = [];
+            grouped[tag][interfaceKey].push(r);
         });
+        
+        // Render
+        for (const tag in grouped) {
+            // Tag Header
+            const tagRow = document.createElement('tr');
+            tagRow.className = 'table-secondary';
+            tagRow.innerHTML = `<td colspan="5" class="fw-bold"><i class="bi bi-tag-fill me-2"></i>Tag: ${tag}</td>`;
+            tbody.appendChild(tagRow);
+
+            for (const interfaceKey in grouped[tag]) {
+                const cases = grouped[tag][interfaceKey];
+                
+                // Interface Header
+                const interfaceRow = document.createElement('tr');
+                interfaceRow.className = 'table-light';
+                interfaceRow.innerHTML = `<td colspan="5" class="ps-4 fw-bold"><i class="bi bi-link-45deg me-2"></i>${interfaceKey}</td>`;
+                tbody.appendChild(interfaceRow);
+
+                // Cases
+                cases.forEach(r => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td style="width: 5%"></td>
+                        <td style="width: 5%"></td>
+                        <td>
+                            <div class="fw-bold">${r.caseName || 'Unknown Case'}</div>
+                            <div class="small text-muted">${r.scenario || ''}</div>
+                        </td>
+                        <td>
+                            ${r.verificationPassed 
+                                ? '<span class="badge bg-success status-badge">PASS</span>' 
+                                : '<span class="badge bg-danger status-badge">FAIL</span>'}
+                        </td>
+                        <td>
+                            <button class="btn btn-sm btn-outline-primary" onclick="showDetail(${r._originalIndex})">查看详情</button>
+                        </td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            }
+        }
         
         // Store results globally for modal access
         window.currentResults = results;

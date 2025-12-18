@@ -35,7 +35,7 @@ public class JMeterAiController {
         // Run async
         CompletableFuture.runAsync(() -> {
             try {
-                ProjectResult result = pipelineService.runPipeline(request.swaggerUrl, request.programName, request.extra);
+                ProjectResult result = pipelineService.runPipeline(request.swaggerUrl, request.programName, request.extra, request.tags, request.authorization);
                 task.result = result;
                 task.status = "COMPLETED";
             } catch (Exception e) {
@@ -109,7 +109,7 @@ public class JMeterAiController {
     }
 
     @GetMapping("/task/{taskId}")
-    public TaskInfo getTaskStatus(@PathVariable String taskId) {
+    public TaskInfo getTaskStatus(@PathVariable("taskId") String taskId) {
         return tasks.getOrDefault(taskId, new TaskInfo(taskId, "NOT_FOUND"));
     }
 
@@ -117,6 +117,8 @@ public class JMeterAiController {
         public String swaggerUrl;
         public String programName;
         public String extra;
+        public List<String> tags;
+        public String authorization;
     }
 
     public static class RunResponse {
