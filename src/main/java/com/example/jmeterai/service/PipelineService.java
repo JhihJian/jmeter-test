@@ -22,6 +22,10 @@ public class PipelineService {
     private CurlExecutorService curlExecutorService;
 
     public ProjectResult runPipeline(String swaggerUrl, String programName, String extra, List<String> tags, String authorization) throws Exception {
+        return runPipeline(swaggerUrl, programName, extra, tags, authorization, null);
+    }
+
+    public ProjectResult runPipeline(String swaggerUrl, String programName, String extra, List<String> tags, String authorization, String markdownSpec) throws Exception {
         ProjectResult result = new ProjectResult();
 
         // 1. API Understanding
@@ -40,8 +44,9 @@ public class PipelineService {
         }
 
         log.info("Analyzing API...");
+        String understandingPrompt = PromptPresets.understandingUserPrompt(programName, extra, info, markdownSpec);
         String understandingText = ModelUtils.stripCodeFences(llmService.callLlm(PromptPresets.understandingSystemPrompt(),
-                PromptPresets.understandingUserPrompt(programName, extra, info)));
+                understandingPrompt));
         result.apiUnderstanding = understandingText;
 
         ApiUnderstandingResult ar = new ApiUnderstandingResult();
@@ -82,7 +87,7 @@ public class PipelineService {
                     log.info("    Generating cases for scenario: {}", scenario.name());
                     String casesText = llmService.callLlm(
                         PromptPresets.singleInterfaceSystemPrompt(),
-                        PromptPresets.singleInterfaceUserPrompt(programName, endpoint.method, endpoint.path, endpointJson, scenario)
+                        PromptPresets.singleInterfaceUserPrompt(programName, endpoint.method, endpoint.path, endpointJson, scenario, markdownSpec)
                     );
                     if (log.isDebugEnabled()) {
                         log.debug("    LLM Generated Cases Response: {}", casesText);

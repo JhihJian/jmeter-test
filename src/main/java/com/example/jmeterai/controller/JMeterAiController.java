@@ -6,6 +6,7 @@ import com.example.jmeterai.model.TestCase;
 import com.example.jmeterai.service.PipelineService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 import java.util.Map;
@@ -48,6 +49,49 @@ public class JMeterAiController {
         });
 
         return new RunResponse(taskId, "Task started successfully");
+    }
+
+    @PostMapping(value = "/runWithSpec", consumes = {"multipart/form-data"})
+    public RunResponse runProjectWithSpec(
+            @RequestPart("request") RunRequest request,
+            @RequestPart(value = "specFile", required = false) MultipartFile specFile
+    ) throws Exception {
+        String taskId = UUID.randomUUID().toString();
+        TaskInfo task = new TaskInfo();
+        task.taskId = taskId;
+        task.status = "RUNNING";
+        task.startTime = System.currentTimeMillis();
+        tasks.put(taskId, task);
+
+        String markdownSpec = null;
+        if (specFile != null && !specFile.isEmpty()) {
+            markdownSpec = new String(specFile.getBytes(), java.nio.charset.StandardCharsets.UTF_8);
+        }
+
+        String finalMarkdownSpec = markdownSpec;
+
+        CompletableFuture.runAsync(() -> {
+            try {
+                ProjectResult result = pipelineService.runPipeline(
+                        request.swaggerUrl,
+                        request.programName,
+                        request.extra,
+                        request.tags,
+                        request.authorization,
+                        finalMarkdownSpec
+                );
+                task.result = result;
+                task.status = "COMPLETED";
+            } catch (Exception e) {
+                task.status = "FAILED";
+                task.error = e.getMessage();
+                e.printStackTrace();
+            } finally {
+                task.endTime = System.currentTimeMillis();
+            }
+        });
+
+        return new RunResponse(taskId, "Task with spec started successfully");
     }
 
     @PostMapping("/rerun/{taskId}")

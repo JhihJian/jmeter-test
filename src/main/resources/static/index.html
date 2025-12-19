@@ -27,7 +27,7 @@
             <i class="bi bi-play-circle-fill me-2"></i>创建测试任务
         </div>
         <div class="card-body">
-            <form id="taskForm">
+            <form id="taskForm" enctype="multipart/form-data">
                 <div class="mb-3">
                     <label for="programName" class="form-label">项目名称</label>
                     <input type="text" class="form-control" id="programName" placeholder="例如：电商后台管理系统" required>
@@ -36,6 +36,11 @@
                     <label for="swaggerUrl" class="form-label">Swagger/OpenAPI 文档地址</label>
                     <input type="url" class="form-control" id="swaggerUrl" placeholder="http://localhost:8080/v3/api-docs" required>
                     <div class="form-text">请输入 Swagger JSON 的访问地址，确保服务可访问。</div>
+                </div>
+                <div class="mb-3">
+                    <label for="specFile" class="form-label">接口规范文档 (Markdown, 可选)</label>
+                    <input type="file" class="form-control" id="specFile" accept=".md,.markdown,text/markdown">
+                    <div class="form-text">可上传接口规范说明文档（.md），用于辅助生成更贴合业务的测试用例。</div>
                 </div>
                 <div class="mb-3">
                     <label for="extra" class="form-label">额外测试说明 (Prompt)</label>
@@ -232,6 +237,7 @@
         const tagsStr = document.getElementById('tags').value;
         const tags = tagsStr ? tagsStr.split(/[,，]/).map(t => t.trim()).filter(t => t) : [];
         const authorization = document.getElementById('authorization').value;
+        const specInput = document.getElementById('specFile');
         
         // UI Update
         const btn = document.getElementById('runBtn');
@@ -240,11 +246,22 @@
         spinner.classList.remove('d-none');
         
         try {
-            const response = await fetch('/api/project/run', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ programName, swaggerUrl, extra, tags, authorization })
-            });
+            let response;
+            if (specInput && specInput.files && specInput.files.length > 0) {
+                const formData = new FormData();
+                formData.append('request', new Blob([JSON.stringify({ programName, swaggerUrl, extra, tags, authorization })], { type: 'application/json' }));
+                formData.append('specFile', specInput.files[0]);
+                response = await fetch('/api/project/runWithSpec', {
+                    method: 'POST',
+                    body: formData
+                });
+            } else {
+                response = await fetch('/api/project/run', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ programName, swaggerUrl, extra, tags, authorization })
+                });
+            }
             
             if (!response.ok) throw new Error('Failed to start task');
             
