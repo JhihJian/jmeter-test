@@ -6,9 +6,9 @@ import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
 
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.net.URI;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
 
 public class OpenApiExtractor {
   public static class Endpoint {
@@ -122,10 +122,65 @@ public class OpenApiExtractor {
           if (pathNode.isMissingNode()) return "";
           JsonNode methodNode = pathNode.path(method.toLowerCase());
           if (methodNode.isMissingNode()) return "";
-          return mapper.writerWithDefaultPrettyPrinter().writeValueAsString(methodNode);
+          
+          // Collect refs
+          Set<String> refKeys = new HashSet<>();
+          collectRefs(methodNode, refKeys);
+          
+          // Resolve refs from components/schemas (OpenAPI 3) or definitions (Swagger 2)
+          Map<String, JsonNode> definitions = new HashMap<>();
+          Queue<String> toProcess = new LinkedList<>(refKeys);
+          Set<String> processed = new HashSet<>();
+          
+          while(!toProcess.isEmpty()) {
+              String ref = toProcess.poll();
+              if (processed.contains(ref)) continue;
+              processed.add(ref);
+              
+              JsonNode schemaNode = null;
+              String schemaName = null;
+              
+              if (ref.startsWith("#/components/schemas/")) {
+                  schemaName = ref.substring("#/components/schemas/".length());
+                  schemaNode = root.path("components").path("schemas").path(schemaName);
+              } else if (ref.startsWith("#/definitions/")) {
+                  schemaName = ref.substring("#/definitions/".length());
+                  schemaNode = root.path("definitions").path(schemaName);
+              }
+              
+              if (schemaNode != null && !schemaNode.isMissingNode()) {
+                  definitions.put(schemaName, schemaNode);
+                  // Find refs inside this schema
+                  Set<String> newRefs = new HashSet<>();
+                  collectRefs(schemaNode, newRefs);
+                  toProcess.addAll(newRefs);
+              }
+          }
+          
+          // Construct result
+          ObjectNode result = mapper.createObjectNode();
+          result.set("operation", methodNode);
+          if (!definitions.isEmpty()) {
+              ObjectNode defsNode = mapper.createObjectNode();
+              definitions.forEach(defsNode::set);
+              result.set("components_schemas", defsNode);
+          }
+          
+          return mapper.writerWithDefaultPrettyPrinter().writeValueAsString(result);
       } catch (Exception e) {
           return "";
       }
+  }
+
+  private void collectRefs(JsonNode node, Set<String> refs) {
+    if (node.isObject()) {
+      if (node.has("$ref")) {
+        refs.add(node.get("$ref").asText());
+      }
+      node.forEach(child -> collectRefs(child, refs));
+    } else if (node.isArray()) {
+      node.forEach(child -> collectRefs(child, refs));
+    }
   }
 
   private String truncate(String s, int max) {
