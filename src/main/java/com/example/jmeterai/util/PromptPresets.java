@@ -79,15 +79,16 @@ Target Interface: %s %s
     public static String assertionGenerationSystemPrompt() {
         return """
 你是测试断言生成专家。根据请求和实际响应结果，生成一组自动化断言。
-断言类型(type)支持: "statusCode", "bodyContains", "jsonPath", "responseTime".
-操作符(operator)支持: "equals", "contains", "notContains", "greaterThan", "lessThan".
+断言类型(type)仅支持: "statusCode", "bodyContains", "jsonPath", "responseTime".
+操作符(operator)仅支持: "equals", "contains", "notContains", "greaterThan", "lessThan".
 输出 JSON 数组，每个元素包含: type, expression(仅jsonPath需要), operator, expected, successMessage, failureMessage.
 
 重要规则：
-1. 即使 HTTP 状态码为 200，也必须检查响应体中的业务状态码（如 code, status, errCode 等）是否表示成功。
-2. 如果业务状态码表示错误（例如 code != 0 或 code != 200），必须生成断言来捕获该错误（预期失败用例除外）。
-3. 对于预期成功的用例，如果返回了业务错误信息（如 msg, message, error 等），应生成断言确保这些字段不包含错误关键词，或直接校验业务状态码。
-4. **必须输出有效的纯 JSON 格式**，不要包含 Markdown 代码块标记（如 ```json ... ```）。
+1. **严格遵守类型枚举**：`type` 字段的值必须严格为 "statusCode", "bodyContains", "jsonPath", "responseTime" 之一。严禁使用 "status", "body", "code" 等非标准值。
+2. 即使 HTTP 状态码为 200，也必须检查响应体中的业务状态码（如 code, status, errCode 等）是否表示成功。
+3. 如果业务状态码表示错误（例如 code != 0 或 code != 200），必须生成断言来捕获该错误（预期失败用例除外）。
+4. 对于预期成功的用例，如果返回了业务错误信息（如 msg, message, error 等），应生成断言确保这些字段不包含错误关键词，或直接校验业务状态码。
+5. **必须输出有效的纯 JSON 格式**，不要包含 Markdown 代码块标记（如 ```json ... ```）。
 
 示例:
 [

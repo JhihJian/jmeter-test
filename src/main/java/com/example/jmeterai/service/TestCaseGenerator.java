@@ -226,6 +226,10 @@ public class TestCaseGenerator {
         for (com.fasterxml.jackson.databind.JsonNode node : root) {
           com.example.jmeterai.model.Assertion a = new com.example.jmeterai.model.Assertion();
           a.type = node.path("type").asText();
+          // Validate type
+          if (!isValidAssertionType(a.type)) {
+            continue; // Skip invalid assertion types
+          }
           a.expression = node.path("expression").asText(null);
           a.operator = node.path("operator").asText();
           a.expected = node.path("expected").asText();
@@ -238,5 +242,13 @@ public class TestCaseGenerator {
         org.slf4j.LoggerFactory.getLogger(TestCaseGenerator.class).error("Failed to parse assertions JSON: " + content, e);
     }
     return out;
+  }
+
+  private boolean isValidAssertionType(String type) {
+    if (type == null) return false;
+    return type.equals("statusCode") || 
+           type.equals("bodyContains") || 
+           type.equals("jsonPath") || 
+           type.equals("responseTime");
   }
 }
